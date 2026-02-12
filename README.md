@@ -21,6 +21,19 @@ The installer also:
 npx clawpilot@latest
 ```
 
+## Quick Start
+
+```bash
+# Install into default ~/.openclaw
+npx -y clawpilot@latest install
+
+# Or install with custom schedule
+npx -y clawpilot@latest install --morning 08:30 --midday 13:30 --evening 21:00
+
+# Validate CLI
+npx -y clawpilot@latest --help
+```
+
 Or run locally:
 
 ```bash
