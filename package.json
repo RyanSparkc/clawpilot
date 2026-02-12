@@ -1,0 +1,35 @@
+{
+  "name": "clawpilot",
+  "version": "0.1.0",
+  "description": "OpenClaw productivity copilot installer and skill package.",
+  "private": false,
+  "bin": {
+    "clawpilot": "bin/cli.js"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "skill/",
+    "templates/",
+    "docs/",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test"
+  },
+  "keywords": [
+    "openclaw",
+    "claw",
+    "productivity",
+    "copilot"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/RyanSparkc/clawpilot.git"
+  },
+  "homepage": "https://github.com/RyanSparkc/clawpilot#readme",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
