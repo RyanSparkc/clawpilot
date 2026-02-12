@@ -1,6 +1,6 @@
 {
   "name": "clawpilot",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "OpenClaw productivity copilot installer and skill package.",
   "private": false,
   "bin": {
