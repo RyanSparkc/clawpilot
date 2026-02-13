@@ -76,3 +76,68 @@ test('runRuntimeCommand report uses weekly summary from saved state', async () =
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+test('runRuntimeCommand loads default rolePack/channel from openclaw config entry', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'clawpilot-runtime-'));
+  const stateFile = path.join(tempDir, 'state.json');
+  const packageRoot = path.join(__dirname, '..');
+  const configPath = path.join(tempDir, 'openclaw.json');
+  const config = {
+    skills: {
+      entries: {
+        'clawpilot-productivity': {
+          runtime: {
+            defaults: {
+              rolePack: 'minji'
+            }
+          },
+          delivery: {
+            channel: '@team'
+          }
+        }
+      }
+    }
+  };
+
+  try {
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+
+    const payload = await runRuntimeCommand({
+      command: 'morning',
+      dryRun: true,
+      packageRoot,
+      openClawHome: tempDir,
+      stateFile,
+      dateKey: '2026-02-13'
+    });
+
+    assert.equal(payload.rolePack.name, 'Minji');
+    assert.equal(payload.channel, '@team');
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('runRuntimeCommand throws channel_required in send mode without explicit/default channel', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'clawpilot-runtime-'));
+  const stateFile = path.join(tempDir, 'state.json');
+  const packageRoot = path.join(__dirname, '..');
+
+  try {
+    await assert.rejects(
+      runRuntimeCommand({
+        command: 'morning',
+        dryRun: false,
+        packageRoot,
+        stateFile,
+        dateKey: '2026-02-13'
+      }),
+      (error) =>
+        error &&
+        error.code === 'channel_required' &&
+        /--channel/i.test(error.fix || '')
+    );
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});

@@ -1,5 +1,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
+const { migrateConfig, CURRENT_CONFIG_SCHEMA_VERSION } = require('./config/migrations');
 
 const SKILL_ID = 'clawpilot-productivity';
 const MARKER_START = '<!-- clawpilot:productivity:start -->';
@@ -68,6 +69,27 @@ function normalizeSchedule(schedule) {
   };
 }
 
+function resolveRolePack({ requestedRolePack, existingEntry }) {
+  if (requestedRolePack) {
+    return requestedRolePack;
+  }
+  if (existingEntry.runtime?.defaults?.rolePack) {
+    return existingEntry.runtime.defaults.rolePack;
+  }
+  if (existingEntry.rolePack) {
+    return existingEntry.rolePack;
+  }
+  return 'hana';
+}
+
+function resolveSchedule({ existingEntry, requestedSchedule }) {
+  const existingSchedule = existingEntry.runtime?.schedule || existingEntry.schedule || {};
+  return normalizeSchedule({
+    ...existingSchedule,
+    ...(requestedSchedule || {})
+  });
+}
+
 function upsertWorkspaceSoul(soulPath, injectionText) {
   const normalizedInjection = `${MARKER_START}\n${injectionText.trim()}\n${MARKER_END}`;
   const existing = fs.existsSync(soulPath)
@@ -99,6 +121,9 @@ async function installSkill({
   packageRoot,
   schedule,
   force = false,
+  channel = null,
+  rolePack,
+  onExisting = 'error',
   timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
 }) {
   const skillsDir = path.join(openClawHome, 'skills');
@@ -119,11 +144,30 @@ async function installSkill({
   fs.mkdirSync(skillsDir, { recursive: true });
   fs.mkdirSync(workspaceDir, { recursive: true });
 
+  const existingMode = force ? 'reinstall' : onExisting;
+  const hadExistingSkill = fs.existsSync(skillDir);
+  if (!['error', 'update', 'skip', 'reinstall'].includes(existingMode)) {
+    throw new Error(`Unsupported onExisting mode: ${existingMode}`);
+  }
+
   if (fs.existsSync(skillDir)) {
-    if (!force) {
-      throw new Error(`Skill already installed: ${skillDir}. Re-run with force to replace.`);
+    if (existingMode === 'skip') {
+      return {
+        action: 'skip',
+        skillDir,
+        configPath,
+        workspaceSoulPath,
+        identityPath
+      };
     }
-    fs.rmSync(skillDir, { recursive: true, force: true });
+    if (existingMode === 'error') {
+      throw new Error(
+        `Skill already installed: ${skillDir}. Re-run with --on-existing update|skip|reinstall or --force.`
+      );
+    }
+    if (existingMode === 'reinstall') {
+      fs.rmSync(skillDir, { recursive: true, force: true });
+    }
   }
 
   if (fs.existsSync(skillSourceDir)) {
@@ -137,18 +181,34 @@ async function installSkill({
   upsertWorkspaceSoul(workspaceSoulPath, injectionTemplate);
   fs.writeFileSync(identityPath, identityTemplate, 'utf8');
 
-  let config = readJson(configPath);
+  let config = migrateConfig(readJson(configPath));
+  config.configSchemaVersion = CURRENT_CONFIG_SCHEMA_VERSION;
   const existingEntry = (((config.skills || {}).entries || {})[SKILL_ID]) || {};
+  const resolvedRolePack = resolveRolePack({
+    requestedRolePack: rolePack,
+    existingEntry
+  });
+  const resolvedSchedule = resolveSchedule({
+    existingEntry,
+    requestedSchedule: schedule
+  });
   const mergedEntry = deepMerge(existingEntry, {
     enabled: true,
     mode: 'productivity',
     timezone,
-    schedule: normalizeSchedule(schedule),
-    rolePack: existingEntry.rolePack || 'hana',
+    schedule: resolvedSchedule,
+    rolePack: resolvedRolePack,
+    runtime: {
+      defaults: {
+        timezone,
+        rolePack: resolvedRolePack
+      },
+      schedule: resolvedSchedule
+    },
     delivery: {
       mode: 'openclaw-gateway',
       platform: 'telegram',
-      channel: existingEntry?.delivery?.channel ?? null
+      channel: channel ?? existingEntry?.delivery?.channel ?? null
     }
   });
 
@@ -173,6 +233,7 @@ async function installSkill({
   writeJson(configPath, config);
 
   return {
+    action: hadExistingSkill && existingMode === 'update' ? 'update' : 'install',
     skillDir,
     configPath,
     workspaceSoulPath,

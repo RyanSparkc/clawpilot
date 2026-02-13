@@ -10,4 +10,7 @@ test('README documents run command and gateway workflow', () => {
   assert.match(readme, /clawpilot run/i);
   assert.match(readme, /openclaw message send/i);
   assert.match(readme, /fictional role pack/i);
+  assert.match(readme, /docs\/troubleshooting\.md/i);
+  assert.match(readme, /--json-errors/i);
+  assert.match(readme, /--preflight/i);
 });

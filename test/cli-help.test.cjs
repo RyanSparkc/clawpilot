@@ -1,15 +1,26 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { spawnSync } = require('node:child_process');
-const path = require('node:path');
 
-test('cli --help prints usage for clawpilot', () => {
-  const cliPath = path.join(__dirname, '..', 'bin', 'cli.js');
-  const result = spawnSync(process.execPath, [cliPath, '--help'], { encoding: 'utf8' });
+const { printHelp } = require('../bin/cli');
 
-  assert.equal(result.status, 0);
-  assert.match(result.stdout, /clawpilot/i);
-  assert.match(result.stdout, /install/i);
-  assert.match(result.stdout, /--yes/i);
-  assert.match(result.stdout, /--timezone/i);
+test('printHelp prints usage and key install/runtime flags', () => {
+  const lines = [];
+  const originalLog = console.log;
+  console.log = (value = '') => {
+    lines.push(String(value));
+  };
+
+  try {
+    printHelp();
+  } finally {
+    console.log = originalLog;
+  }
+
+  const output = lines.join('\n');
+  assert.match(output, /clawpilot/i);
+  assert.match(output, /install/i);
+  assert.match(output, /--yes/i);
+  assert.match(output, /--timezone/i);
+  assert.match(output, /--json-errors/i);
+  assert.match(output, /--preflight/i);
 });
