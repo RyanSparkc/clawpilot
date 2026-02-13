@@ -12,10 +12,12 @@ function printHelp() {
   console.log('');
   console.log('Usage:');
   console.log('  clawpilot install [options]');
+  console.log('  clawpilot run [options]');
   console.log('  clawpilot --help');
   console.log('');
   console.log('Commands:');
   console.log('  install    Install clawpilot-productivity skill into OpenClaw');
+  console.log('  run        Run productivity runtime command');
   console.log('');
   console.log('Options:');
   console.log('  --home <path>       Override OpenClaw home directory');
@@ -25,6 +27,9 @@ function printHelp() {
   console.log(`  --morning <HH:mm>   Morning check-in time (default: ${DEFAULT_SCHEDULE.morning})`);
   console.log(`  --midday <HH:mm>    Midday check-in time (default: ${DEFAULT_SCHEDULE.midday})`);
   console.log(`  --evening <HH:mm>   Evening check-in time (default: ${DEFAULT_SCHEDULE.evening})`);
+  console.log('  --command <name>    Runtime command (morning|midday|evening|report)');
+  console.log('  --channel <target>  OpenClaw channel target (e.g. @channel)');
+  console.log('  --dry-run           Return payload only, do not send');
 }
 
 function readValueArg(args, index, flagName, missingValueFlags) {
@@ -82,6 +87,52 @@ function parseOptions(args) {
       const { value, nextIndex } = readValueArg(args, index, '--evening', options.missingValueFlags);
       options.schedule.evening = value;
       index = nextIndex;
+      continue;
+    }
+    throw new Error(`Unknown option: ${arg}`);
+  }
+
+  return options;
+}
+
+function parseRunOptions(args) {
+  const options = {
+    command: 'morning',
+    dryRun: false,
+    channel: null
+  };
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === '--dry-run') {
+      options.dryRun = true;
+      continue;
+    }
+    if (arg === '--command') {
+      const next = args[index + 1];
+      if (!next || next.startsWith('--')) {
+        throw new Error('--command requires a value.');
+      }
+      options.command = next;
+      index += 1;
+      continue;
+    }
+    if (arg === '--channel') {
+      const next = args[index + 1];
+      if (!next || next.startsWith('--')) {
+        throw new Error('--channel requires a value.');
+      }
+      options.channel = next;
+      index += 1;
+      continue;
+    }
+    if (arg === '--timezone') {
+      const next = args[index + 1];
+      if (!next || next.startsWith('--')) {
+        throw new Error('--timezone requires a value.');
+      }
+      options.timezone = next;
+      index += 1;
       continue;
     }
     throw new Error(`Unknown option: ${arg}`);
@@ -165,6 +216,18 @@ async function main() {
 
   if (command === '--help' || command === '-h' || command === 'help') {
     printHelp();
+    return;
+  }
+
+  if (command === 'run') {
+    const runtime = require('../src/runtime');
+    const projectRoot = path.resolve(__dirname, '..');
+    const runOptions = parseRunOptions(commandArgs);
+    const payload = await runtime.runRuntimeCommand({
+      ...runOptions,
+      packageRoot: projectRoot
+    });
+    console.log(JSON.stringify(payload));
     return;
   }
 
