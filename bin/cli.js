@@ -30,6 +30,10 @@ function printHelp() {
   console.log('  --command <name>    Runtime command (morning|midday|evening|report)');
   console.log('  --channel <target>  OpenClaw channel target (e.g. @channel)');
   console.log('  --dry-run           Return payload only, do not send');
+  console.log('  --role-pack <name>  Role pack id (e.g. hana, minji)');
+  console.log('  --task <text>       Task item (repeatable for morning)');
+  console.log('  --status <value>    Status item (repeatable for midday)');
+  console.log('  --state-file <path> Runtime state file override');
 }
 
 function readValueArg(args, index, flagName, missingValueFlags) {
@@ -99,7 +103,9 @@ function parseRunOptions(args) {
   const options = {
     command: 'morning',
     dryRun: false,
-    channel: null
+    channel: null,
+    tasks: [],
+    statuses: []
   };
 
   for (let index = 0; index < args.length; index += 1) {
@@ -123,6 +129,42 @@ function parseRunOptions(args) {
         throw new Error('--channel requires a value.');
       }
       options.channel = next;
+      index += 1;
+      continue;
+    }
+    if (arg === '--task') {
+      const next = args[index + 1];
+      if (!next || next.startsWith('--')) {
+        throw new Error('--task requires a value.');
+      }
+      options.tasks.push(next);
+      index += 1;
+      continue;
+    }
+    if (arg === '--status') {
+      const next = args[index + 1];
+      if (!next || next.startsWith('--')) {
+        throw new Error('--status requires a value.');
+      }
+      options.statuses.push(next);
+      index += 1;
+      continue;
+    }
+    if (arg === '--role-pack') {
+      const next = args[index + 1];
+      if (!next || next.startsWith('--')) {
+        throw new Error('--role-pack requires a value.');
+      }
+      options.rolePack = next;
+      index += 1;
+      continue;
+    }
+    if (arg === '--state-file') {
+      const next = args[index + 1];
+      if (!next || next.startsWith('--')) {
+        throw new Error('--state-file requires a value.');
+      }
+      options.stateFile = next;
       index += 1;
       continue;
     }
@@ -223,8 +265,10 @@ async function main() {
     const runtime = require('../src/runtime');
     const projectRoot = path.resolve(__dirname, '..');
     const runOptions = parseRunOptions(commandArgs);
+    const openClawHome = process.env.OPENCLAW_HOME || path.join(os.homedir(), '.openclaw');
     const payload = await runtime.runRuntimeCommand({
       ...runOptions,
+      openClawHome,
       packageRoot: projectRoot
     });
     console.log(JSON.stringify(payload));
