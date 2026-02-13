@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 
+const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const readline = require('node:readline');
-const { installSkill, DEFAULT_SCHEDULE } = require('../src/install');
+const { runPreflight, TROUBLESHOOTING_DOC } = require('../src/preflight');
+const { installSkill, DEFAULT_SCHEDULE, SKILL_ID } = require('../src/install');
 
 const SCHEDULE_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
+const ON_EXISTING_MODES = ['error', 'update', 'skip', 'reinstall'];
 
 function printHelp() {
   console.log('clawpilot - OpenClaw productivity copilot');
@@ -28,12 +31,123 @@ function printHelp() {
   console.log(`  --midday <HH:mm>    Midday check-in time (default: ${DEFAULT_SCHEDULE.midday})`);
   console.log(`  --evening <HH:mm>   Evening check-in time (default: ${DEFAULT_SCHEDULE.evening})`);
   console.log('  --command <name>    Runtime command (morning|midday|evening|report)');
-  console.log('  --channel <target>  OpenClaw channel target (e.g. @channel)');
+  console.log('  --channel <target>  Channel target (run) and default delivery channel (install)');
   console.log('  --dry-run           Return payload only, do not send');
-  console.log('  --role-pack <name>  Role pack id (e.g. hana, minji)');
+  console.log('  --role-pack <name>  Role pack id (run) and default role pack (install)');
   console.log('  --task <text>       Task item (repeatable for morning)');
   console.log('  --status <value>    Status item (repeatable for midday)');
   console.log('  --state-file <path> Runtime state file override');
+  console.log('  --on-existing <mode> Existing install policy (error|update|skip|reinstall)');
+  console.log('  --preflight         Run environment checks only (no install changes)');
+  console.log('  --json-errors       Output machine-readable JSON errors to stderr');
+}
+
+function createCliError(code, reason, fix, docs = TROUBLESHOOTING_DOC) {
+  const error = new Error(reason);
+  error.code = code;
+  error.reason = reason;
+  error.fix = fix;
+  error.docs = docs;
+  return error;
+}
+
+function normalizeCliError(error) {
+  if (error && typeof error === 'object' && error.code && error.reason) {
+    return {
+      code: error.code,
+      reason: error.reason,
+      fix: error.fix || 'See troubleshooting guide.',
+      docs: error.docs || TROUBLESHOOTING_DOC
+    };
+  }
+
+  const message = error && error.message ? error.message : String(error || 'Unknown error');
+
+  if (/channel is required/i.test(message)) {
+    return {
+      code: 'channel_required',
+      reason: 'Channel is required for non-dry-run delivery.',
+      fix: 'Re-run with --channel <target> or use --dry-run.',
+      docs: TROUBLESHOOTING_DOC
+    };
+  }
+
+  if (/unsupported runtime command/i.test(message)) {
+    return {
+      code: 'invalid_command',
+      reason: message,
+      fix: 'Use one of: morning, midday, evening, report.',
+      docs: TROUBLESHOOTING_DOC
+    };
+  }
+
+  return {
+    code: 'unknown',
+    reason: message,
+    fix: 'Inspect the error details and troubleshooting guide.',
+    docs: TROUBLESHOOTING_DOC
+  };
+}
+
+function printCliError(error, useJsonErrors) {
+  const normalized = normalizeCliError(error);
+  if (useJsonErrors) {
+    process.stderr.write(`${JSON.stringify(normalized)}\n`);
+    return;
+  }
+
+  console.error(`${normalized.code}: ${normalized.reason}`);
+  console.error(`Fix: ${normalized.fix}`);
+  if (normalized.docs) {
+    console.error(`Docs: ${normalized.docs}`);
+  }
+}
+
+function printPreflightSummary(summary, useJsonErrors) {
+  const issues = Array.isArray(summary.issues) ? summary.issues : [];
+  const warnings = Array.isArray(summary.warnings) ? summary.warnings : [];
+  if (useJsonErrors) {
+    process.stdout.write(`${JSON.stringify({ ...summary, issues, warnings })}\n`);
+    return;
+  }
+
+  console.log('Preflight summary');
+  console.log(`- ok: ${summary.ok}`);
+  if (issues.length > 0) {
+    console.log('- issues:');
+    for (const issue of issues) {
+      console.log(`  - [${issue.code}] ${issue.reason}`);
+      console.log(`    fix: ${issue.fix}`);
+    }
+  }
+  if (warnings.length > 0) {
+    console.log('- warnings:');
+    for (const warning of warnings) {
+      console.log(`  - [${warning.code}] ${warning.reason}`);
+      console.log(`    fix: ${warning.fix}`);
+    }
+  }
+}
+
+function isValidOnExistingMode(value) {
+  return ON_EXISTING_MODES.includes(value);
+}
+
+function normalizeOnExistingChoice(choice) {
+  const normalized = (choice || '').trim().toLowerCase();
+  if (!normalized) {
+    return 'update';
+  }
+  if (normalized === '1') {
+    return 'update';
+  }
+  if (normalized === '2') {
+    return 'skip';
+  }
+  if (normalized === '3') {
+    return 'reinstall';
+  }
+  return normalized;
 }
 
 function readValueArg(args, index, flagName, missingValueFlags) {
@@ -49,6 +163,7 @@ function parseOptions(args) {
   const options = {
     force: false,
     yes: false,
+    jsonErrors: false,
     schedule: {},
     missingValueFlags: []
   };
@@ -61,6 +176,14 @@ function parseOptions(args) {
     }
     if (arg === '--yes') {
       options.yes = true;
+      continue;
+    }
+    if (arg === '--json-errors') {
+      options.jsonErrors = true;
+      continue;
+    }
+    if (arg === '--preflight') {
+      options.preflightOnly = true;
       continue;
     }
     if (arg === '--home') {
@@ -93,6 +216,24 @@ function parseOptions(args) {
       index = nextIndex;
       continue;
     }
+    if (arg === '--channel') {
+      const { value, nextIndex } = readValueArg(args, index, '--channel', options.missingValueFlags);
+      options.channel = value;
+      index = nextIndex;
+      continue;
+    }
+    if (arg === '--role-pack') {
+      const { value, nextIndex } = readValueArg(args, index, '--role-pack', options.missingValueFlags);
+      options.rolePack = value;
+      index = nextIndex;
+      continue;
+    }
+    if (arg === '--on-existing') {
+      const { value, nextIndex } = readValueArg(args, index, '--on-existing', options.missingValueFlags);
+      options.onExisting = value;
+      index = nextIndex;
+      continue;
+    }
     throw new Error(`Unknown option: ${arg}`);
   }
 
@@ -103,6 +244,7 @@ function parseRunOptions(args) {
   const options = {
     command: 'morning',
     dryRun: false,
+    jsonErrors: false,
     channel: null,
     tasks: [],
     statuses: []
@@ -112,6 +254,10 @@ function parseRunOptions(args) {
     const arg = args[index];
     if (arg === '--dry-run') {
       options.dryRun = true;
+      continue;
+    }
+    if (arg === '--json-errors') {
+      options.jsonErrors = true;
       continue;
     }
     if (arg === '--command') {
@@ -247,8 +393,61 @@ async function resolveMissingValues(options) {
     }
     if (flag === '--evening') {
       options.schedule.evening = await prompt('Evening check-in time (HH:mm): ');
+      continue;
     }
+    if (flag === '--channel') {
+      options.channel = await prompt('Default delivery channel (optional, press Enter to skip): ');
+      continue;
+    }
+    if (flag === '--role-pack') {
+      options.rolePack = await prompt('Default role pack (hana|minji, Enter for hana): ');
+      continue;
+    }
+    if (flag === '--on-existing') {
+      options.onExisting = await prompt('Existing install policy (error|update|skip|reinstall): ');
+      continue;
+    }
+    throw new Error(`${flag} requires a value.`);
   }
+}
+
+async function resolveOnExistingMode({
+  options,
+  openClawHome,
+  promptFn = prompt,
+  fsOps = fs,
+  pathOps = path,
+  isInteractive = process.stdin.isTTY
+}) {
+  if (options.onExisting) {
+    return options.onExisting;
+  }
+
+  const skillDir = pathOps.join(openClawHome, 'skills', SKILL_ID);
+  if (!fsOps.existsSync(skillDir)) {
+    options.onExisting = 'error';
+    return options.onExisting;
+  }
+
+  if (options.yes || !isInteractive) {
+    options.onExisting = 'error';
+    return options.onExisting;
+  }
+
+  const answer = await promptFn(
+    `Existing installation found at ${skillDir}. Choose mode [1:update, 2:skip, 3:reinstall] (default: update): `
+  );
+  const mode = normalizeOnExistingChoice(answer);
+  if (!['update', 'skip', 'reinstall'].includes(mode)) {
+    throw createCliError(
+      'invalid_on_existing_mode',
+      `Invalid existing install mode "${answer}".`,
+      'Choose update, skip, reinstall (or 1/2/3).'
+    );
+  }
+
+  options.onExisting = mode;
+  return options.onExisting;
 }
 
 async function main() {
@@ -299,23 +498,94 @@ async function main() {
   }
 
   const openClawHome = options.openClawHome || process.env.OPENCLAW_HOME || path.join(os.homedir(), '.openclaw');
+  await resolveOnExistingMode({ options, openClawHome });
+
+  if (options.onExisting && !isValidOnExistingMode(options.onExisting)) {
+    throw createCliError(
+      'invalid_on_existing_mode',
+      `Invalid --on-existing value "${options.onExisting}".`,
+      'Use one of: error, update, skip, reinstall.'
+    );
+  }
+
+  let preflightSummary = { ok: true, checks: [], issues: [], warnings: [] };
+  if (process.env.CLAWPILOT_TEST_FORCE_PREFLIGHT_FAIL === '1') {
+    preflightSummary = {
+      ok: false,
+      checks: [],
+      issues: [
+        {
+          code: 'gateway_missing',
+          reason: 'openclaw CLI not found.',
+          fix: 'Install OpenClaw CLI and verify with: openclaw --version',
+          docs: TROUBLESHOOTING_DOC
+        }
+      ]
+    };
+  } else if (process.env.CLAWPILOT_SKIP_PREFLIGHT !== '1') {
+    preflightSummary = runPreflight({ openClawHome });
+  }
+
+  if (options.preflightOnly) {
+    printPreflightSummary(preflightSummary, options.jsonErrors);
+    if (!preflightSummary.ok) {
+      process.exitCode = 1;
+    }
+    return;
+  }
+
+  if (!preflightSummary.ok) {
+    const issue = preflightSummary.issues[0];
+    throw createCliError(issue.code, issue.reason, issue.fix, issue.docs);
+  }
+
+  if (preflightSummary.warnings && preflightSummary.warnings.length > 0 && !options.jsonErrors) {
+    for (const warning of preflightSummary.warnings) {
+      console.error(`warning ${warning.code}: ${warning.reason}`);
+      console.error(`fix: ${warning.fix}`);
+    }
+  }
 
   const result = await installSkill({
     openClawHome,
     packageRoot: projectRoot,
     schedule: options.schedule,
     force: options.force,
-    timezone
+    timezone,
+    channel: options.channel,
+    rolePack: options.rolePack,
+    onExisting: options.onExisting
   });
 
-  console.log(`Installed skill at: ${result.skillDir}`);
+  if (result.action === 'skip') {
+    console.log(`Skipped installation; existing skill kept at: ${result.skillDir}`);
+    console.log(`Config remains at: ${result.configPath}`);
+    return;
+  }
+
+  const installVerb = result.action === 'update' ? 'Updated' : 'Installed';
+  console.log(`${installVerb} skill at: ${result.skillDir}`);
   console.log(`Updated config at: ${result.configPath}`);
   console.log(`Updated workspace SOUL at: ${result.workspaceSoulPath}`);
   console.log(`Updated workspace identity at: ${result.identityPath}`);
   console.log('Next: run openclaw and start your morning Top-3 planning check-in.');
 }
 
-main().catch((error) => {
-  console.error(error.message);
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  main().catch((error) => {
+    const useJsonErrors = process.argv.includes('--json-errors');
+    printCliError(error, useJsonErrors);
+    process.exitCode = 1;
+  });
+}
+
+module.exports = {
+  createCliError,
+  normalizeCliError,
+  parseOptions,
+  parseRunOptions,
+  printCliError,
+  printHelp,
+  resolveOnExistingMode,
+  printPreflightSummary
+};

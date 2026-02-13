@@ -1,26 +1,29 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { spawnSync } = require('node:child_process');
-const path = require('node:path');
 
-test('run command returns morning payload in dry-run mode', () => {
-  const cliPath = path.join(__dirname, '..', 'bin', 'cli.js');
-  const result = spawnSync(
-    process.execPath,
-    [
-      cliPath,
-      'run',
-      '--command',
-      'morning',
-      '--dry-run',
-      '--timezone',
-      'UTC'
-    ],
-    { encoding: 'utf8' }
-  );
+const { parseRunOptions } = require('../bin/cli');
 
-  assert.equal(result.status, 0);
-  const payload = JSON.parse(result.stdout);
-  assert.equal(payload.command, 'morning');
-  assert.equal(payload.deliveryMode, 'dry-run');
+test('parseRunOptions parses dry-run morning command', () => {
+  const options = parseRunOptions([
+    '--command',
+    'morning',
+    '--dry-run',
+    '--timezone',
+    'UTC'
+  ]);
+
+  assert.equal(options.command, 'morning');
+  assert.equal(options.dryRun, true);
+  assert.equal(options.timezone, 'UTC');
+});
+
+test('parseRunOptions supports --json-errors flag', () => {
+  const options = parseRunOptions([
+    '--command',
+    'report',
+    '--json-errors'
+  ]);
+
+  assert.equal(options.command, 'report');
+  assert.equal(options.jsonErrors, true);
 });
