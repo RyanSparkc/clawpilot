@@ -9,37 +9,56 @@ const { installSkill, DEFAULT_SCHEDULE, SKILL_ID } = require('../src/install');
 
 const SCHEDULE_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
 const ON_EXISTING_MODES = ['error', 'update', 'skip', 'reinstall'];
+const KNOWN_COMMANDS = ['install', 'run', 'init', 'doctor'];
+const DEFAULT_INIT_PROMPTS = {
+  rolePack: 'hana',
+  schedule: { ...DEFAULT_SCHEDULE },
+  onExisting: 'update'
+};
 
-function printHelp() {
+function printHelp({ advanced = false } = {}) {
   console.log('clawpilot - OpenClaw productivity copilot');
   console.log('');
   console.log('Usage:');
   console.log('  clawpilot install [options]');
+  console.log('  clawpilot init [options]');
   console.log('  clawpilot run [options]');
-  console.log('  clawpilot --help');
+  console.log('  clawpilot doctor [options]');
+  console.log('  clawpilot --help [--advanced]');
   console.log('');
   console.log('Commands:');
   console.log('  install    Install clawpilot-productivity skill into OpenClaw');
+  console.log('  init       Interactive first-time setup and install');
   console.log('  run        Run productivity runtime command');
+  console.log('  doctor     Run environment diagnostics (preflight only)');
   console.log('');
-  console.log('Options:');
+  console.log('Common options:');
+  console.log('  --yes               Non-interactive mode (fail if required input is missing)');
+  console.log('  --command <name>    Runtime command (morning|midday|evening|report)');
+  console.log('  --channel <target>  Channel target (run) and default delivery channel (install)');
+  console.log('  --dry-run           Return payload only, do not send');
+  console.log('  --preflight         Run environment checks only (no install changes)');
+  console.log('  --role-pack <name>  Role pack id (run) and default role pack (install)');
+  console.log('  --json-errors       Output machine-readable JSON errors to stderr');
+  console.log('  --help, -h          Show help');
+  console.log('  --advanced          Show advanced options (with --help)');
+
+  if (!advanced) {
+    return;
+  }
+
+  console.log('');
+  console.log('Advanced options:');
   console.log('  --home <path>       Override OpenClaw home directory');
   console.log('  --force             Replace existing clawpilot skill installation');
-  console.log('  --yes               Non-interactive mode (fail if required input is missing)');
   console.log('  --timezone <IANA>   Timezone override (e.g. Asia/Taipei, UTC)');
   console.log(`  --morning <HH:mm>   Morning check-in time (default: ${DEFAULT_SCHEDULE.morning})`);
   console.log(`  --midday <HH:mm>    Midday check-in time (default: ${DEFAULT_SCHEDULE.midday})`);
   console.log(`  --evening <HH:mm>   Evening check-in time (default: ${DEFAULT_SCHEDULE.evening})`);
-  console.log('  --command <name>    Runtime command (morning|midday|evening|report)');
-  console.log('  --channel <target>  Channel target (run) and default delivery channel (install)');
-  console.log('  --dry-run           Return payload only, do not send');
-  console.log('  --role-pack <name>  Role pack id (run) and default role pack (install)');
   console.log('  --task <text>       Task item (repeatable for morning)');
   console.log('  --status <value>    Status item (repeatable for midday)');
   console.log('  --state-file <path> Runtime state file override');
   console.log('  --on-existing <mode> Existing install policy (error|update|skip|reinstall)');
-  console.log('  --preflight         Run environment checks only (no install changes)');
-  console.log('  --json-errors       Output machine-readable JSON errors to stderr');
 }
 
 function createCliError(code, reason, fix, docs = TROUBLESHOOTING_DOC) {
@@ -159,6 +178,51 @@ function readValueArg(args, index, flagName, missingValueFlags) {
   return { value, nextIndex: index + 1 };
 }
 
+function parseGlobalArgs(args) {
+  const helpRequested = args.includes('--help') || args.includes('-h') || args[0] === 'help';
+  const advancedHelp = args.includes('--advanced');
+  const filtered = args.filter((arg) => !['--help', '-h', '--advanced'].includes(arg));
+  const firstArg = filtered[0];
+
+  if (!firstArg || firstArg.startsWith('--')) {
+    return {
+      helpRequested,
+      advancedHelp,
+      command: 'install',
+      commandArgs: filtered,
+      unknownCommand: false
+    };
+  }
+
+  if (KNOWN_COMMANDS.includes(firstArg)) {
+    return {
+      helpRequested,
+      advancedHelp,
+      command: firstArg,
+      commandArgs: filtered.slice(1),
+      unknownCommand: false
+    };
+  }
+
+  if (firstArg === 'help') {
+    return {
+      helpRequested: true,
+      advancedHelp,
+      command: 'install',
+      commandArgs: filtered.slice(1),
+      unknownCommand: false
+    };
+  }
+
+  return {
+    helpRequested,
+    advancedHelp,
+    command: firstArg,
+    commandArgs: filtered.slice(1),
+    unknownCommand: true
+  };
+}
+
 function parseOptions(args) {
   const options = {
     force: false,
@@ -237,6 +301,34 @@ function parseOptions(args) {
     throw new Error(`Unknown option: ${arg}`);
   }
 
+  return options;
+}
+
+function parseDoctorOptions(args) {
+  const options = {
+    jsonErrors: false,
+    missingValueFlags: []
+  };
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === '--json-errors') {
+      options.jsonErrors = true;
+      continue;
+    }
+    if (arg === '--home') {
+      const { value, nextIndex } = readValueArg(args, index, '--home', options.missingValueFlags);
+      options.openClawHome = value;
+      index = nextIndex;
+      continue;
+    }
+    throw new Error(`Unknown option: ${arg}`);
+  }
+
+  if (options.missingValueFlags.length > 0) {
+    throw new Error(`${options.missingValueFlags[0]} requires a value.`);
+  }
+  delete options.missingValueFlags;
   return options;
 }
 
@@ -450,67 +542,59 @@ async function resolveOnExistingMode({
   return options.onExisting;
 }
 
-async function main() {
-  const args = process.argv.slice(2);
-  const command = args[0] || 'install';
-  const commandArgs = args.slice(1);
-
-  if (command === '--help' || command === '-h' || command === 'help') {
-    printHelp();
-    return;
-  }
-
-  if (command === 'run') {
-    const runtime = require('../src/runtime');
-    const projectRoot = path.resolve(__dirname, '..');
-    const runOptions = parseRunOptions(commandArgs);
-    const openClawHome = process.env.OPENCLAW_HOME || path.join(os.homedir(), '.openclaw');
-    const payload = await runtime.runRuntimeCommand({
-      ...runOptions,
-      openClawHome,
-      packageRoot: projectRoot
-    });
-    console.log(JSON.stringify(payload));
-    return;
-  }
-
-  if (command !== 'install') {
-    console.error(`Unknown command: ${command}`);
-    console.error('Run "clawpilot --help" for usage.');
-    process.exitCode = 1;
-    return;
-  }
-
-  const projectRoot = path.resolve(__dirname, '..');
-  const options = parseOptions(commandArgs);
-  await resolveMissingValues(options);
-  validateSchedule(options.schedule);
-
-  let timezone = options.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-  if (!timezone) {
-    if (options.yes) {
-      throw new Error('Timezone could not be detected. Provide --timezone <IANA name>.');
+async function resolveInitPrompts(options, { promptFn = prompt, isInteractive = process.stdin.isTTY } = {}) {
+  if (options.yes || !isInteractive) {
+    if (!options.rolePack) {
+      options.rolePack = DEFAULT_INIT_PROMPTS.rolePack;
     }
-    timezone = await prompt('Timezone (e.g. UTC, Asia/Taipei): ');
-  }
-  if (!isValidTimezone(timezone)) {
-    throw new Error(`Invalid timezone "${timezone}". Use a valid IANA timezone like UTC or Asia/Taipei.`);
+    if (!options.onExisting) {
+      options.onExisting = DEFAULT_INIT_PROMPTS.onExisting;
+    }
+    return;
   }
 
-  const openClawHome = options.openClawHome || process.env.OPENCLAW_HOME || path.join(os.homedir(), '.openclaw');
-  await resolveOnExistingMode({ options, openClawHome });
+  if (!options.channel) {
+    const channelAnswer = await promptFn('Default delivery channel (optional, press Enter to skip): ');
+    if (channelAnswer) {
+      options.channel = channelAnswer;
+    }
+  }
 
-  if (options.onExisting && !isValidOnExistingMode(options.onExisting)) {
-    throw createCliError(
-      'invalid_on_existing_mode',
-      `Invalid --on-existing value "${options.onExisting}".`,
-      'Use one of: error, update, skip, reinstall.'
+  if (!options.rolePack) {
+    const rolePackAnswer = await promptFn(`Default role pack (hana|minji, default: ${DEFAULT_INIT_PROMPTS.rolePack}): `);
+    options.rolePack = rolePackAnswer || DEFAULT_INIT_PROMPTS.rolePack;
+  }
+
+  for (const key of ['morning', 'midday', 'evening']) {
+    if (options.schedule[key]) {
+      continue;
+    }
+    const defaultValue = DEFAULT_INIT_PROMPTS.schedule[key];
+    const answer = await promptFn(
+      `${key.charAt(0).toUpperCase()}${key.slice(1)} check-in time (HH:mm, default: ${defaultValue}): `
     );
+    options.schedule[key] = answer || defaultValue;
   }
 
-  let preflightSummary = { ok: true, checks: [], issues: [], warnings: [] };
+  if (!options.onExisting) {
+    const onExistingAnswer = await promptFn(
+      `Existing install policy (update|skip|reinstall, default: ${DEFAULT_INIT_PROMPTS.onExisting}): `
+    );
+    options.onExisting = normalizeOnExistingChoice(onExistingAnswer || DEFAULT_INIT_PROMPTS.onExisting);
+  }
+}
+
+function resolveTimezone(options) {
+  return options.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+}
+
+function resolveOpenClawHome(homeOverride) {
+  return homeOverride || process.env.OPENCLAW_HOME || path.join(os.homedir(), '.openclaw');
+}
+
+function resolvePreflightSummary(openClawHome) {
   if (process.env.CLAWPILOT_TEST_FORCE_PREFLIGHT_FAIL === '1') {
-    preflightSummary = {
+    return {
       ok: false,
       checks: [],
       issues: [
@@ -522,10 +606,66 @@ async function main() {
         }
       ]
     };
-  } else if (process.env.CLAWPILOT_SKIP_PREFLIGHT !== '1') {
-    preflightSummary = runPreflight({ openClawHome });
+  }
+  if (process.env.CLAWPILOT_SKIP_PREFLIGHT === '1') {
+    return { ok: true, checks: [], issues: [], warnings: [] };
+  }
+  return runPreflight({ openClawHome });
+}
+
+function printPreflightWarnings(summary, useJsonErrors) {
+  if (useJsonErrors || !Array.isArray(summary.warnings) || summary.warnings.length === 0) {
+    return;
+  }
+  for (const warning of summary.warnings) {
+    console.error(`warning ${warning.code}: ${warning.reason}`);
+    console.error(`fix: ${warning.fix}`);
+  }
+}
+
+async function runInstallCommand(commandArgs, { initMode = false } = {}) {
+  const projectRoot = path.resolve(__dirname, '..');
+  const options = parseOptions(commandArgs);
+  await resolveMissingValues(options);
+
+  if (initMode) {
+    await resolveInitPrompts(options);
   }
 
+  validateSchedule(options.schedule);
+
+  let timezone = resolveTimezone(options);
+  if (!timezone) {
+    if (options.yes) {
+      throw new Error('Timezone could not be detected. Provide --timezone <IANA name>.');
+    }
+    timezone = await prompt('Timezone (e.g. UTC, Asia/Taipei): ');
+  }
+  if (!isValidTimezone(timezone)) {
+    throw new Error(`Invalid timezone "${timezone}". Use a valid IANA timezone like UTC or Asia/Taipei.`);
+  }
+
+  const openClawHome = resolveOpenClawHome(options.openClawHome);
+  if (options.onExisting) {
+    options.onExisting = normalizeOnExistingChoice(options.onExisting);
+  }
+  if (!options.onExisting) {
+    if (initMode) {
+      options.onExisting = DEFAULT_INIT_PROMPTS.onExisting;
+    } else {
+      await resolveOnExistingMode({ options, openClawHome });
+    }
+  }
+
+  if (options.onExisting && !isValidOnExistingMode(options.onExisting)) {
+    throw createCliError(
+      'invalid_on_existing_mode',
+      `Invalid --on-existing value "${options.onExisting}".`,
+      'Use one of: error, update, skip, reinstall.'
+    );
+  }
+
+  const preflightSummary = resolvePreflightSummary(openClawHome);
   if (options.preflightOnly) {
     printPreflightSummary(preflightSummary, options.jsonErrors);
     if (!preflightSummary.ok) {
@@ -538,13 +678,7 @@ async function main() {
     const issue = preflightSummary.issues[0];
     throw createCliError(issue.code, issue.reason, issue.fix, issue.docs);
   }
-
-  if (preflightSummary.warnings && preflightSummary.warnings.length > 0 && !options.jsonErrors) {
-    for (const warning of preflightSummary.warnings) {
-      console.error(`warning ${warning.code}: ${warning.reason}`);
-      console.error(`fix: ${warning.fix}`);
-    }
-  }
+  printPreflightWarnings(preflightSummary, options.jsonErrors);
 
   const result = await installSkill({
     openClawHome,
@@ -568,7 +702,63 @@ async function main() {
   console.log(`Updated config at: ${result.configPath}`);
   console.log(`Updated workspace SOUL at: ${result.workspaceSoulPath}`);
   console.log(`Updated workspace identity at: ${result.identityPath}`);
+  if (initMode) {
+    console.log('Init complete. Next: clawpilot run --command morning --dry-run');
+    return;
+  }
   console.log('Next: run openclaw and start your morning Top-3 planning check-in.');
+}
+
+async function runDoctorCommand(commandArgs) {
+  const options = parseDoctorOptions(commandArgs);
+  const openClawHome = resolveOpenClawHome(options.openClawHome);
+  const summary = resolvePreflightSummary(openClawHome);
+  printPreflightSummary(summary, options.jsonErrors);
+  if (!summary.ok) {
+    process.exitCode = 1;
+  }
+}
+
+async function runRuntimeCommand(commandArgs) {
+  const runtime = require('../src/runtime');
+  const projectRoot = path.resolve(__dirname, '..');
+  const runOptions = parseRunOptions(commandArgs);
+  const openClawHome = resolveOpenClawHome();
+  const payload = await runtime.runRuntimeCommand({
+    ...runOptions,
+    openClawHome,
+    packageRoot: projectRoot
+  });
+  console.log(JSON.stringify(payload));
+}
+
+async function main() {
+  const invocation = parseGlobalArgs(process.argv.slice(2));
+  if (invocation.helpRequested) {
+    printHelp({ advanced: invocation.advancedHelp });
+    return;
+  }
+
+  if (invocation.unknownCommand) {
+    console.error(`Unknown command: ${invocation.command}`);
+    console.error('Run "clawpilot --help" for usage.');
+    process.exitCode = 1;
+    return;
+  }
+
+  if (invocation.command === 'run') {
+    await runRuntimeCommand(invocation.commandArgs);
+    return;
+  }
+  if (invocation.command === 'doctor') {
+    await runDoctorCommand(invocation.commandArgs);
+    return;
+  }
+  if (invocation.command === 'init') {
+    await runInstallCommand(invocation.commandArgs, { initMode: true });
+    return;
+  }
+  await runInstallCommand(invocation.commandArgs, { initMode: false });
 }
 
 if (require.main === module) {
@@ -580,12 +770,16 @@ if (require.main === module) {
 }
 
 module.exports = {
+  DEFAULT_INIT_PROMPTS,
   createCliError,
   normalizeCliError,
+  parseDoctorOptions,
+  parseGlobalArgs,
   parseOptions,
   parseRunOptions,
   printCliError,
   printHelp,
+  resolveInitPrompts,
   resolveOnExistingMode,
   printPreflightSummary
 };

@@ -9,6 +9,7 @@ Execution-first productivity copilot for OpenClaw: fast install, deterministic w
 ## Why Clawpilot
 
 - Fast first success: `npx` entrypoint with no global install step.
+- Two-layer CLI help: concise defaults + `--help --advanced` for full flags.
 - Reliability-first installer: preflight checks + explicit existing-install behavior.
 - Runtime observability: structured errors with fix hints for automation and humans.
 - Brand-safe persona strategy: fictional role pack identities only (`hana`, `minji`).
@@ -19,10 +20,10 @@ Execution-first productivity copilot for OpenClaw: fast install, deterministic w
 
 ```bash
 # 1) Check environment only (no writes)
-npx -y clawpilot@latest install --preflight
+npx -y clawpilot@latest doctor
 
-# 2) Install
-npx -y clawpilot@latest install --yes --timezone UTC --on-existing update
+# 2) First-time setup + install
+npx -y clawpilot@latest init --yes --timezone UTC --channel @your_channel
 
 # 3) First success (dry-run, no send)
 npx -y clawpilot@latest run --command morning --dry-run --timezone UTC
@@ -37,11 +38,22 @@ npx -y clawpilot@latest run --command morning --dry-run --timezone UTC
 
 ## FAQ
 
-**Q: This is `npx` only. Is it actually on npm?**  
-Yes. `clawpilot` is published on npm, and `npx -y clawpilot@latest ...` pulls from npm directly.
+**Q: How do I verify the environment without changing files?**  
+Use preflight mode:
+`npx -y clawpilot@latest install --preflight`
 
-**Q: Why no real celebrity/real-person identity mode?**  
-Project policy is fictional role pack only for safer branding and compliance.
+**Q: Why do I get `channel_required` when running `run`?**  
+Non-dry-run delivery requires a channel target. Use `--channel <target>` or set `delivery.channel` in `~/.openclaw/openclaw.json`.
+
+**Q: I already installed before. How should I update safely?**  
+Use existing-install update mode:
+`npx -y clawpilot@latest install --yes --on-existing update`
+
+**Q: Why does `--help` show fewer options now?**  
+`--help` is optimized for common flows. Use `--help --advanced` for full install/runtime flags.
+
+**Q: Why only fictional role packs like `hana` and `minji`?**  
+Project policy is fictional role packs only for safer branding and compliance.
 
 ## Runtime Usage
 
@@ -75,6 +87,24 @@ Options:
 - `--morning <HH:mm>`: morning check-in time
 - `--midday <HH:mm>`: midday check-in time
 - `--evening <HH:mm>`: evening check-in time
+
+## Init Command
+
+```bash
+clawpilot init [options]
+```
+
+Recommended for first-time setup. It prompts for common defaults in interactive mode, and can run non-interactive with `--yes`.
+
+## Doctor Command
+
+```bash
+clawpilot doctor [options]
+```
+
+Options:
+- `--home <path>`: override OpenClaw home directory
+- `--json-errors`: emit machine-readable preflight summary
 
 ## Run Options
 
