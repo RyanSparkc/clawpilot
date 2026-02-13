@@ -61,6 +61,24 @@ Options:
 - `--midday <HH:mm>`: Midday check-in time (default `14:00`)
 - `--evening <HH:mm>`: Evening check-in time (default `21:30`)
 
+## Runtime Commands
+
+`clawpilot` now supports runtime command execution:
+
+```bash
+node bin/cli.js run --command morning --dry-run --timezone UTC --role-pack hana --task "Plan sprint" --task "Fix blocker" --task "Send update"
+node bin/cli.js run --command midday --dry-run --status done --status blocked --status deferred
+node bin/cli.js run --command evening --dry-run
+node bin/cli.js run --command report --dry-run
+```
+
+Gateway delivery path:
+- Uses OpenClaw Gateway (`openclaw message send`)
+- Default install config sets:
+  - `delivery.mode = openclaw-gateway`
+  - `delivery.platform = telegram`
+  - `rolePack = hana`
+
 ## OpenClaw paths
 
 By default, the installer writes to:

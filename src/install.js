@@ -143,7 +143,13 @@ async function installSkill({
     enabled: true,
     mode: 'productivity',
     timezone,
-    schedule: normalizeSchedule(schedule)
+    schedule: normalizeSchedule(schedule),
+    rolePack: existingEntry.rolePack || 'hana',
+    delivery: {
+      mode: 'openclaw-gateway',
+      platform: 'telegram',
+      channel: existingEntry?.delivery?.channel ?? null
+    }
   });
 
   config = deepMerge(config, {

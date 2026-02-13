@@ -2,6 +2,12 @@
 
 Run this exact daily structure with minimal friction:
 
+Supported slash commands:
+- `/morning`
+- `/midday`
+- `/evening`
+- `/report`
+
 ### Morning (Plan)
 
 - Ask for exactly 3 outcome-based tasks.
@@ -26,3 +32,7 @@ Coaching rules:
 - Use supportive language, never guilt-driven language.
 - Limit rescue sprints to at most two per week.
 - Avoid long motivational monologues.
+
+Delivery rules:
+- When channel delivery is requested, route through OpenClaw Gateway.
+- Send with `openclaw message send` and include role-pack avatar as media when available.

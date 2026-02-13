@@ -53,6 +53,10 @@ test('installSkill copies skill files and updates OpenClaw config/workspace', as
     assert.equal(config.skills.entries['clawpilot-productivity'].schedule.morning, '09:00');
     assert.equal(config.skills.entries['clawpilot-productivity'].schedule.midday, '14:00');
     assert.equal(config.skills.entries['clawpilot-productivity'].schedule.evening, '21:30');
+    assert.equal(config.skills.entries['clawpilot-productivity'].delivery.mode, 'openclaw-gateway');
+    assert.equal(config.skills.entries['clawpilot-productivity'].delivery.platform, 'telegram');
+    assert.equal(config.skills.entries['clawpilot-productivity'].delivery.channel, null);
+    assert.equal(config.skills.entries['clawpilot-productivity'].rolePack, 'hana');
     assert.equal(config.skills.load.extraDirs.includes(path.join(tmpRoot, 'skills')), true);
   } finally {
     fs.rmSync(tmpRoot, { recursive: true, force: true });
