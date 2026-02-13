@@ -66,6 +66,10 @@ Options:
 `clawpilot` now supports runtime command execution:
 
 ```bash
+# installed binary style
+clawpilot run --command morning --dry-run --timezone UTC --role-pack hana --task "Plan sprint" --task "Fix blocker" --task "Send update"
+
+# local source style
 node bin/cli.js run --command morning --dry-run --timezone UTC --role-pack hana --task "Plan sprint" --task "Fix blocker" --task "Send update"
 node bin/cli.js run --command midday --dry-run --status done --status blocked --status deferred
 node bin/cli.js run --command evening --dry-run
@@ -78,6 +82,9 @@ Gateway delivery path:
   - `delivery.mode = openclaw-gateway`
   - `delivery.platform = telegram`
   - `rolePack = hana`
+
+Role pack policy:
+- Uses fictional role pack identities only (no real-person celebrity identity).
 
 ## OpenClaw paths
 
