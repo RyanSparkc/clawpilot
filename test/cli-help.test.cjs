@@ -10,4 +10,6 @@ test('cli --help prints usage for clawpilot', () => {
   assert.equal(result.status, 0);
   assert.match(result.stdout, /clawpilot/i);
   assert.match(result.stdout, /install/i);
+  assert.match(result.stdout, /--yes/i);
+  assert.match(result.stdout, /--timezone/i);
 });

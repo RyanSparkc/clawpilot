@@ -2,7 +2,10 @@
 
 const os = require('node:os');
 const path = require('node:path');
+const readline = require('node:readline');
 const { installSkill, DEFAULT_SCHEDULE } = require('../src/install');
+
+const SCHEDULE_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
 function printHelp() {
   console.log('clawpilot - OpenClaw productivity copilot');
@@ -17,15 +20,28 @@ function printHelp() {
   console.log('Options:');
   console.log('  --home <path>       Override OpenClaw home directory');
   console.log('  --force             Replace existing clawpilot skill installation');
+  console.log('  --yes               Non-interactive mode (fail if required input is missing)');
+  console.log('  --timezone <IANA>   Timezone override (e.g. Asia/Taipei, UTC)');
   console.log(`  --morning <HH:mm>   Morning check-in time (default: ${DEFAULT_SCHEDULE.morning})`);
   console.log(`  --midday <HH:mm>    Midday check-in time (default: ${DEFAULT_SCHEDULE.midday})`);
   console.log(`  --evening <HH:mm>   Evening check-in time (default: ${DEFAULT_SCHEDULE.evening})`);
 }
 
+function readValueArg(args, index, flagName, missingValueFlags) {
+  const value = args[index + 1];
+  if (value === undefined || value.startsWith('--')) {
+    missingValueFlags.push(flagName);
+    return { value: undefined, nextIndex: index };
+  }
+  return { value, nextIndex: index + 1 };
+}
+
 function parseOptions(args) {
   const options = {
     force: false,
-    schedule: {}
+    yes: false,
+    schedule: {},
+    missingValueFlags: []
   };
 
   for (let index = 0; index < args.length; index += 1) {
@@ -34,30 +50,112 @@ function parseOptions(args) {
       options.force = true;
       continue;
     }
+    if (arg === '--yes') {
+      options.yes = true;
+      continue;
+    }
     if (arg === '--home') {
-      options.openClawHome = args[index + 1];
-      index += 1;
+      const { value, nextIndex } = readValueArg(args, index, '--home', options.missingValueFlags);
+      options.openClawHome = value;
+      index = nextIndex;
+      continue;
+    }
+    if (arg === '--timezone') {
+      const { value, nextIndex } = readValueArg(args, index, '--timezone', options.missingValueFlags);
+      options.timezone = value;
+      index = nextIndex;
       continue;
     }
     if (arg === '--morning') {
-      options.schedule.morning = args[index + 1];
-      index += 1;
+      const { value, nextIndex } = readValueArg(args, index, '--morning', options.missingValueFlags);
+      options.schedule.morning = value;
+      index = nextIndex;
       continue;
     }
     if (arg === '--midday') {
-      options.schedule.midday = args[index + 1];
-      index += 1;
+      const { value, nextIndex } = readValueArg(args, index, '--midday', options.missingValueFlags);
+      options.schedule.midday = value;
+      index = nextIndex;
       continue;
     }
     if (arg === '--evening') {
-      options.schedule.evening = args[index + 1];
-      index += 1;
+      const { value, nextIndex } = readValueArg(args, index, '--evening', options.missingValueFlags);
+      options.schedule.evening = value;
+      index = nextIndex;
       continue;
     }
     throw new Error(`Unknown option: ${arg}`);
   }
 
   return options;
+}
+
+function prompt(question) {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+  });
+
+  return new Promise((resolve) => {
+    rl.question(question, (answer) => {
+      rl.close();
+      resolve(answer.trim());
+    });
+  });
+}
+
+function isValidTimezone(timezone) {
+  try {
+    Intl.DateTimeFormat('en-US', { timeZone: timezone }).format();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function validateSchedule(schedule) {
+  for (const [key, value] of Object.entries(schedule)) {
+    if (!SCHEDULE_PATTERN.test(value)) {
+      throw new Error(`Invalid ${key} time "${value}". Use HH:mm (24-hour format).`);
+    }
+  }
+}
+
+async function resolveMissingValues(options) {
+  const missing = [...new Set(options.missingValueFlags)];
+  if (missing.length === 0) {
+    return;
+  }
+
+  if (options.yes) {
+    throw new Error(`${missing[0]} requires a value when --yes is set.`);
+  }
+
+  if (!process.stdin.isTTY) {
+    throw new Error(`${missing[0]} requires a value. Re-run with ${missing[0]} <value> or use interactive terminal.`);
+  }
+
+  for (const flag of missing) {
+    if (flag === '--home') {
+      options.openClawHome = await prompt('OpenClaw home path: ');
+      continue;
+    }
+    if (flag === '--timezone') {
+      options.timezone = await prompt('Timezone (e.g. UTC, Asia/Taipei): ');
+      continue;
+    }
+    if (flag === '--morning') {
+      options.schedule.morning = await prompt('Morning check-in time (HH:mm): ');
+      continue;
+    }
+    if (flag === '--midday') {
+      options.schedule.midday = await prompt('Midday check-in time (HH:mm): ');
+      continue;
+    }
+    if (flag === '--evening') {
+      options.schedule.evening = await prompt('Evening check-in time (HH:mm): ');
+    }
+  }
 }
 
 async function main() {
@@ -79,19 +177,35 @@ async function main() {
 
   const projectRoot = path.resolve(__dirname, '..');
   const options = parseOptions(commandArgs);
+  await resolveMissingValues(options);
+  validateSchedule(options.schedule);
+
+  let timezone = options.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  if (!timezone) {
+    if (options.yes) {
+      throw new Error('Timezone could not be detected. Provide --timezone <IANA name>.');
+    }
+    timezone = await prompt('Timezone (e.g. UTC, Asia/Taipei): ');
+  }
+  if (!isValidTimezone(timezone)) {
+    throw new Error(`Invalid timezone "${timezone}". Use a valid IANA timezone like UTC or Asia/Taipei.`);
+  }
+
   const openClawHome = options.openClawHome || process.env.OPENCLAW_HOME || path.join(os.homedir(), '.openclaw');
 
   const result = await installSkill({
     openClawHome,
     packageRoot: projectRoot,
     schedule: options.schedule,
-    force: options.force
+    force: options.force,
+    timezone
   });
 
   console.log(`Installed skill at: ${result.skillDir}`);
   console.log(`Updated config at: ${result.configPath}`);
   console.log(`Updated workspace SOUL at: ${result.workspaceSoulPath}`);
   console.log(`Updated workspace identity at: ${result.identityPath}`);
+  console.log('Next: run openclaw and start your morning Top-3 planning check-in.');
 }
 
 main().catch((error) => {

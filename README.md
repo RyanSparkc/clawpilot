@@ -34,6 +34,12 @@ npx -y clawpilot@latest install --morning 08:30 --midday 13:30 --evening 21:00
 npx -y clawpilot@latest --help
 ```
 
+For isolated local verification:
+
+```bash
+node bin/cli.js install --home ./tmp-openclaw --yes --timezone UTC --force
+```
+
 Or run locally:
 
 ```bash
@@ -78,3 +84,17 @@ npm test
 ## Publish
 
 See `docs/PUBLISH_CHECKLIST.md`.
+
+## Troubleshooting
+
+### npm publish E403 (2FA required)
+
+If publish fails with:
+
+`403 Forbidden ... Two-factor authentication or granular access token with bypass 2fa enabled is required`
+
+Use one of these fixes:
+
+1. Enable npm 2FA for publishing and publish with OTP:
+   - `npm publish --access public --otp=<6-digit-code>`
+2. Use a granular access token with publish permission and bypass 2FA enabled.

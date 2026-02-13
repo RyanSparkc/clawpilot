@@ -17,6 +17,7 @@ Use this checklist before publishing a new `clawpilot` version to npm.
    - `npm pack --dry-run`
 6. Publish:
    - `npm publish --access public`
+   - If your account has publish 2FA enabled: `npm publish --access public --otp=<6-digit-code>`
 7. Validate release:
    - `npm view clawpilot version`
    - `npx clawpilot@latest --help`
