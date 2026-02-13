@@ -1,8 +1,9 @@
 const path = require('node:path');
 const { loadRolePack } = require('./role-pack');
-const { loadState, saveState, ensureDayState } = require('./state-store');
+const { loadState, saveState } = require('./state-store');
 const { handleMorning, handleMidday, handleEvening } = require('./productivity');
 const { sendViaGateway } = require('./openclaw-gateway');
+const { buildWeeklyReport } = require('./weekly-report');
 
 const DEFAULT_TASKS = [
   'Define top priority',
@@ -18,14 +19,6 @@ function resolveStateFile({ stateFile, openClawHome }) {
     return path.join(openClawHome, 'workspace', 'clawpilot-runtime-state.json');
   }
   return path.resolve('.clawpilot-state.json');
-}
-
-function buildReport({ dateKey, state, assistantName }) {
-  const day = ensureDayState(state, dateKey);
-  const doneCount = day.tasks.filter((task) => task.status === 'done').length;
-  return {
-    message: `${assistantName} report: ${doneCount}/${day.tasks.length} done today. Keep momentum into tomorrow.`
-  };
 }
 
 async function runRuntimeCommand(options) {
@@ -56,11 +49,12 @@ async function runRuntimeCommand(options) {
         state
       }),
     report: () =>
-      buildReport({
-        dateKey,
-        state,
-        assistantName: rolePack.name
-      })
+      {
+        const report = buildWeeklyReport(state);
+        return {
+          message: `${rolePack.name} weekly report\n${report.summary}\nCompletion rate: ${report.completionRate}`
+        };
+      }
   };
 
   if (!handlers[command]) {

@@ -31,3 +31,48 @@ test('runRuntimeCommand morning dry-run returns structured payload with rolePack
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+test('runRuntimeCommand report uses weekly summary from saved state', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'clawpilot-runtime-'));
+  const stateFile = path.join(tempDir, 'state.json');
+  const packageRoot = path.join(__dirname, '..');
+
+  try {
+    await runRuntimeCommand({
+      command: 'morning',
+      dryRun: true,
+      packageRoot,
+      rolePack: 'hana',
+      tasks: ['A', 'B', 'C'],
+      timezone: 'UTC',
+      stateFile,
+      dateKey: '2026-02-13'
+    });
+
+    await runRuntimeCommand({
+      command: 'midday',
+      dryRun: true,
+      packageRoot,
+      rolePack: 'hana',
+      statuses: ['done', 'blocked', 'deferred'],
+      timezone: 'UTC',
+      stateFile,
+      dateKey: '2026-02-13'
+    });
+
+    const report = await runRuntimeCommand({
+      command: 'report',
+      dryRun: true,
+      packageRoot,
+      rolePack: 'hana',
+      timezone: 'UTC',
+      stateFile,
+      dateKey: '2026-02-13'
+    });
+
+    assert.match(report.message, /Blocked: 1/);
+    assert.match(report.message, /Completion rate: 33%/);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
