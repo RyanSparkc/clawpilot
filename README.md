@@ -1,103 +1,88 @@
 # clawpilot
 
-OpenClaw productivity copilot installer and skill package.
+OpenClaw productivity copilot skill focused on execution workflows and Telegram delivery via OpenClaw Gateway.
 
-## What it does
+## Core Capabilities
 
-`clawpilot` installs a productivity-focused OpenClaw skill with a simple daily loop:
-- Morning planning (top 3 tasks)
-- Midday progress check
-- Evening review and next-step setup
+- Installs a productivity skill into OpenClaw.
+- Provides runtime commands: `morning`, `midday`, `evening`, `report`.
+- Stores daily task state for progress tracking and weekly summaries.
+- Supports fictional K-style role packs (`hana`, `minji`).
+- Sends messages through OpenClaw Gateway (`openclaw message send`).
 
-The installer also:
-- Copies `skill/` into `~/.openclaw/skills/clawpilot-productivity`
-- Adds or updates `clawpilot-productivity` under `openclaw.json`
-- Injects a productivity section into `workspace/SOUL.md` (idempotent)
-- Writes a default `workspace/IDENTITY.md`
-
-## Install
+## Quick Install
 
 ```bash
-npx clawpilot@latest
-```
-
-## Quick Start
-
-```bash
-# Install into default ~/.openclaw
 npx -y clawpilot@latest install
-
-# Or install with custom schedule
-npx -y clawpilot@latest install --morning 08:30 --midday 13:30 --evening 21:00
-
-# Validate CLI
-npx -y clawpilot@latest --help
 ```
 
-For isolated local verification:
+## Runtime Usage
 
 ```bash
-node bin/cli.js install --home ./tmp-openclaw --yes --timezone UTC --force
+# Installed binary style
+clawpilot run --command morning --dry-run --timezone UTC --role-pack hana --task "Plan sprint" --task "Fix blocker" --task "Send update"
+clawpilot run --command midday --dry-run --status done --status blocked --status deferred
+clawpilot run --command evening --dry-run
+clawpilot run --command report --dry-run
+
+# Local source style
+node bin/cli.js run --command morning --dry-run --timezone UTC --role-pack hana --task "Plan sprint" --task "Fix blocker" --task "Send update"
 ```
 
-Or run locally:
-
-```bash
-npm install
-npm run test
-node bin/cli.js install
-```
-
-## CLI options
+## Install Options
 
 ```bash
 clawpilot install [options]
 ```
 
 Options:
-- `--home <path>`: Override OpenClaw home directory
-- `--force`: Replace existing skill installation
-- `--morning <HH:mm>`: Morning check-in time (default `09:00`)
-- `--midday <HH:mm>`: Midday check-in time (default `14:00`)
-- `--evening <HH:mm>`: Evening check-in time (default `21:30`)
+- `--home <path>`: override OpenClaw home directory
+- `--force`: replace existing installation
+- `--yes`: non-interactive mode
+- `--timezone <IANA>`: timezone override
+- `--morning <HH:mm>`: morning check-in time
+- `--midday <HH:mm>`: midday check-in time
+- `--evening <HH:mm>`: evening check-in time
 
-## Runtime Commands
-
-`clawpilot` now supports runtime command execution:
+## Run Options
 
 ```bash
-# installed binary style
-clawpilot run --command morning --dry-run --timezone UTC --role-pack hana --task "Plan sprint" --task "Fix blocker" --task "Send update"
-
-# local source style
-node bin/cli.js run --command morning --dry-run --timezone UTC --role-pack hana --task "Plan sprint" --task "Fix blocker" --task "Send update"
-node bin/cli.js run --command midday --dry-run --status done --status blocked --status deferred
-node bin/cli.js run --command evening --dry-run
-node bin/cli.js run --command report --dry-run
+clawpilot run [options]
 ```
 
-Gateway delivery path:
-- Uses OpenClaw Gateway (`openclaw message send`)
-- Default install config sets:
+Options:
+- `--command <name>`: `morning|midday|evening|report`
+- `--dry-run`: return payload only, do not send
+- `--channel <target>`: OpenClaw channel target
+- `--role-pack <name>`: `hana|minji`
+- `--task <text>`: repeatable task input (morning)
+- `--status <value>`: repeatable status input (midday)
+- `--state-file <path>`: override runtime state file
+- `--timezone <IANA>`: timezone override
+
+## Delivery Model
+
+- Uses OpenClaw Gateway for delivery.
+- Default runtime delivery config:
   - `delivery.mode = openclaw-gateway`
   - `delivery.platform = telegram`
-  - `rolePack = hana`
+- Non-dry-run requires a valid channel and available OpenClaw CLI/gateway.
 
-Role pack policy:
-- Uses fictional role pack identities only (no real-person celebrity identity).
+## Role Pack Policy
 
-## OpenClaw paths
+- Uses fictional role pack identities only.
+- No real-person celebrity identity is used.
 
-By default, the installer writes to:
+## OpenClaw Paths
+
+Installer writes to:
 - `~/.openclaw/skills/clawpilot-productivity/`
 - `~/.openclaw/openclaw.json`
 - `~/.openclaw/workspace/SOUL.md`
 - `~/.openclaw/workspace/IDENTITY.md`
 
-You can override the target path with:
-
 ```bash
-node bin/cli.js install --home /custom/path
+node bin/cli.js install --home /custom/path --yes --timezone UTC --force
 ```
 
 ## Development
@@ -105,21 +90,3 @@ node bin/cli.js install --home /custom/path
 ```bash
 npm test
 ```
-
-## Publish
-
-See `docs/PUBLISH_CHECKLIST.md`.
-
-## Troubleshooting
-
-### npm publish E403 (2FA required)
-
-If publish fails with:
-
-`403 Forbidden ... Two-factor authentication or granular access token with bypass 2fa enabled is required`
-
-Use one of these fixes:
-
-1. Enable npm 2FA for publishing and publish with OTP:
-   - `npm publish --access public --otp=<6-digit-code>`
-2. Use a granular access token with publish permission and bypass 2FA enabled.

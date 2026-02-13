@@ -1,1 +1,10 @@
+# Local planning and agent instruction files
 docs/plans/
+AGENTS.md
+.agents/
+.codex/
+
+# Node artifacts
+node_modules/
+*.tgz
+npm-debug.log*
